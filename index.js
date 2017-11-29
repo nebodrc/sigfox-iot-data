@@ -112,15 +112,10 @@ function wrap(scloud) {  //  scloud will be either sigfox-gcloud or sigfox-aws, 
       scloud.functionName ? getInstance(scloud.functionName) : ''
     );
     scloud.log(req, 'getMetadataConfig', { metadataPrefix0, metadataKeys0, instance });
-    let authClient = null;
-    let metadata = null;
-    //  Get authorization to access the metadata.
+    //  Get the function metadata from environment or Google Metadata Store.
     getMetadataConfigPromise = scloud.authorizeFunctionMetadata(req)
-      .then((res) => { authClient = res; })
-      //  Get the metadata.
-      .then(() => scloud.getFunctionMetadata(req, authClient))
-      .then((res) => { metadata = res; })
-      .then(() => {
+      .then(authClient => scloud.getFunctionMetadata(req, authClient))
+      .then((metadata) => {
         //  Hunt for the metadata keys in the metadata object and copy them.
         const config = Object.assign({}, metadataKeys0);
         for (const configKey of Object.keys(config)) {
