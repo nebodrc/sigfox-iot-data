@@ -115,10 +115,10 @@ function wrap(scloud) {  //  scloud will be either sigfox-gcloud or sigfox-aws, 
     let authClient = null;
     let metadata = null;
     //  Get authorization to access the metadata.
-    getMetadataConfigPromise = scloud.authorizeMetadata(req)
+    getMetadataConfigPromise = scloud.authorizeFunctionMetadata(req)
       .then((res) => { authClient = res; })
       //  Get the metadata.
-      .then(() => scloud.getMetadata(req, authClient))
+      .then(() => scloud.getFunctionMetadata(req, authClient))
       .then((res) => { metadata = res; })
       .then(() => {
         //  Hunt for the metadata keys in the metadata object and copy them.
