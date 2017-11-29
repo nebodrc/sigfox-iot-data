@@ -24,6 +24,9 @@
 //  Condition: (Blank)
 //  Action: Run Lambda Function sendToDatabase
 
+//  Refer to this URL for source code and comments:
+//  https://github.com/UnaBiz/sigfox-iot-data/blob/master/index.js
+
 //  We set the wrap function and package_json to null indicate that AutoInstall
 //  should install the dependency from environment variable AUTOINSTALL_DEPENDENCY (see above).
 const wrap = null; // eslint-disable-next-line camelcase
