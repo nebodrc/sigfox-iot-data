@@ -119,8 +119,6 @@ function wrap(scloud) {  //  scloud will be either sigfox-gcloud or sigfox-aws, 
       .then((res) => { authClient = res; })
       //  Get the metadata.
       .then(() => scloud.getMetadata(req, authClient))
-      //  Convert the metadata to a JavaScript object.
-      .then(res => scloud.convertMetadata(req, res))
       .then((res) => { metadata = res; })
       .then(() => {
         //  Hunt for the metadata keys in the metadata object and copy them.
