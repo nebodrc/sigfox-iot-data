@@ -1,0 +1,369 @@
+//  sendToDatabase Installation Instructions:
+//  Copy and paste the entire contents of lib/lambda.js into a Lambda Function
+//  Name: sendToDatabase
+//  Runtime: Node.js 6.10
+//  Memory: 512 MB
+//  Timeout: 5 min
+//  Existing Role: lambda_iot (defined according to ../policy/LambdaExecuteIoTUpdate.json)
+//  Debugging: Enable active tracing
+//  Environment Variables:
+//  NODE_ENV=production
+//  AUTOINSTALL_DEPENDENCY= sigfox-aws-data
+//  AUTOINSTALL_VERSION= >=0.0.11
+//  sigfox_dbclient=mysql
+//  sigfox_dbhost=mysql host address
+//  sigfox_dbuser=mysql user
+//  sigfox_dbpassword=mysql password
+
+//  Go to AWS IoT, create a Rule:
+//  Name: sigfoxSendToDatabase
+//  SQL Version: Beta
+//  Attribute: *
+//  Topic filter: sigfox/types/sendToDatabase
+//  Condition: (Blank)
+//  Action: Run Lambda Function sendToDatabase
+
+//  Lambda Function sendToDatabase is triggered when a
+//  Sigfox message is sent to the message queue sigfox.types.sendToDatabase.
+//  We call the Knex library to record the message in the SQL database.
+
+//  //////////////////////////////////////////////////////////////////////////////////////////
+//  Begin Common Declarations
+
+/* eslint-disable max-len, camelcase, no-console, no-nested-ternary, import/no-dynamic-require, import/newline-after-import, import/no-unresolved, global-require, max-len */
+process.on('uncaughtException', err => console.error('uncaughtException', err.message, err.stack));  //  Display uncaught exceptions.
+process.on('unhandledRejection', (reason, p) => console.error('Unhandled Rejection at:', p, 'reason:', reason));
+
+//  //////////////////////////////////////////////////////////////////////////////////// endregion
+//  region AWS-Specific Functions
+
+const awsmetadata = {
+  //  In lieu of the metadata store, we read from the environment variables.
+  authorize(/* req */) {
+    return Promise.resolve({ result: 'OK' });
+  },
+  getProjectMetadata(/* req, authClient */) {
+    //  On Google Cloud the keys can contain '-'.  But AWS environment doesn't allow.
+    //  So we copy all keys with '_' and change to '-' instead.
+    const metadata = Object.assign({}, process.env);
+    const keys = Object.keys(metadata);
+    for (const key of keys) {
+      if (key.indexOf('_') < 0) continue;
+      const val = metadata[key];
+      metadata[key.split('_').join('-')] = val;
+    }
+    return Promise.resolve(metadata);
+  },
+  convertMetadata(req, metadata) {
+    return Promise.resolve(metadata);
+  },
+};
+
+//  //////////////////////////////////////////////////////////////////////////////////// endregion
+//  region Portable Declarations for Google Cloud and AWS
+
+//  We use KNEX library to support many types of databases.
+//  Remember to install any needed database clients e.g. "mysql", "pg"
+const knex = require('knex');
+
+//  //////////////////////////////////////////////////////////////////////////////////// endregion
+//  region Portable Code for Google Cloud and AWS
+
+//  Our database settings are stored in the Google Cloud Metadata store under this prefix.
+//  If there are multiple instances of this function e.g. sendToDatabase2, sendToDatabase3, ...
+//  we will add a instance suffix e.g. sigfox-dbclient2, sigfox-dbclient3, ...
+const metadataPrefix = 'sigfox-db';
+const metadataKeys = {   //  Keys we use and their default values, before prepending metadataPrefix.
+  client: null,          //  Database client to be used e.g mysql. Must be installed from npm.
+  host: null,            //  Address of database server e.g. 127.0.0.1
+  user: 'user',          //  User ID for accessing the database e.g. user
+  password: null,        //  Password for accessing the database.
+  name: 'sigfox',        //  Name of the database, e.g. sigfox
+  table: 'sensordata',   //  Name of the table to store sensor data e.g. sensordata
+  version: null,         //  Version number of database, used only by Postgres e.g. 7.2
+  id: 'uuid',            //  Name of the ID field in the table, e.g. uuid
+};
+
+//  Default fields to be created in sensordata table. Format: fieldname, indexed?, comment
+const sensorfields = (tbl) => ({
+  uuid: [tbl.uuid, false, 'Primary key: Unique message ID in UUID format, e.g. 4cf3ad36-3d3e-415c-a25b-9f8ab2bb4466'],
+  timestamp: [tbl.timestamp, true, 'Timestamp of message receipt at basestation., e.g. 1507798768000'],
+  localdatetime: [tbl.string, false, 'Human-readable local datetime, e.g. 2017-10-12 08:59:29'],
+
+  alt: [tbl.float, false, 'Altitude in metres above sea level, used by send-alt-structured demo, e.g. 86.4'],
+  avgSnr: [tbl.float, false, 'Sigfox average signal-to-noise ratio, e.g. 59.84'],
+  baseStationLat: [tbl.float, false, 'Sigfox basestation latitude.  Usually truncated to 0 decimal points, e.g. 1'],
+  baseStationLng: [tbl.float, false, 'Sigfox basestation longitude.  Usually truncated to 0 decimal points, e.g. 104'],
+  baseStationTime: [tbl.integer, false, 'Sigfox timestamp of message receipt at basestation, in seconds since epoch (1/1/1970), e.g. 1507798768'],
+  // callbackTimestamp: [f => tbl.timestamp.bind(tbl)(f).defaultTo(knex.fn.now()), false, 'Timestamp at which sigfoxCallback was called, e.g. 1507798769710'],
+  data: [tbl.string, false, 'Sigfox message data, e.g. b0510001a421f90194056003'],
+  datetime: [tbl.string, false, 'Human-readable UTC datetime, e.g. 2017-10-12 08:59:29'],
+  device: [tbl.string, true, 'Sigfox device ID, e.g. 2C1C85'],
+  deviceLat: [tbl.float, false, 'Latitude of GPS tracker e.g. UnaTumbler.'],
+  deviceLng: [tbl.float, false, 'Longitude of GPS tracker e.g. UnaTumbler.'],
+  duplicate: [tbl.boolean, true, 'Sigfox sets to false if this is the first message received among all basestations.'],
+  geolocLat: [tbl.float, false, 'Sigfox Geolocation latitude of device.'],
+  geolocLng: [tbl.float, false, 'Sigfox Geolocation longitude of device.'],
+  geolocLocationAccuracy: [tbl.float, false, 'Sigfox Geolocation accuracy of device.'],
+  hmd: [tbl.float, false, '% Humidity, used by send-alt-structured demo, e.g. 50.5'],
+  lat: [tbl.float, false, 'Latitude for rendering in Ubidots.'],
+  lng: [tbl.float, false, 'Longitude for rendering in Ubidots.'],
+  rssi: [tbl.float, true, 'Sigfox signal strength, e.g. -122'],
+  seqNumber: [tbl.integer, true, 'Sigfox message sequence number, e.g. 2426'],
+  snr: [tbl.float, false, 'Sigfox message signal-to-noise ratio, e.g. 21.61'],
+  station: [tbl.string, true, 'Sigfox basestation ID, e.g. 2464'],
+  tmp: [tbl.float, false, 'Temperature in degrees Celsius, used by send-alt-structured demo, e.g. 25.6'],
+});
+
+let db = null;  //  Instance of the KNEX library.
+let tableInfo = null;  //  Contains the actual columns in the sensordata table.
+let getMetadataConfigPromise = null;  //  Promise for returning the metadata config.
+let getDatabaseConfigPromise = null;  //  Promise for returning the database connection.
+let reuseCount = 0;
+
+function wrap() {
+  //  Wrap the module into a function so that all Google Cloud resources are properly disposed.
+  const sgcloud = require('sigfox-aws'); //  sigfox-aws Framework
+  // const googlemetadata = require('sigfox-gcloud/lib/google-metadata');  //  For accessing Google Metadata.
+  const googlemetadata = awsmetadata;
+  let wrapCount = 0;
+
+  function getInstance(name) {
+    //  Given a function name like "func123", return the suffix number "123".
+    let num = '';
+    //  Walk backwards from the last char. Stop when we find a non-digit.
+    for (let i = name.length - 1; i >= 0; i -= 1) {
+      const ch = name[i];
+      if (ch < '0' || ch > '9') break;
+      num = ch + num;
+    }
+    return num;
+  }
+
+  function getMetadataConfig(req, metadataPrefix0, metadataKeys0, instance0) {
+    //  Fetch the metadata config from the Google Cloud Metadata store.  metadataPrefix is the common
+    //  prefix for all config keys, e.g. "sigfox-db".  metadataKeys is a map of the key suffix
+    //  and the default values.  Returns a promise for the map of metadataKeys to values.
+    //  We use the Google Cloud Metadata store because it has an editing screen and is easier
+    //  to deploy, compared to a config file. instance0 is used for unit test.
+    if (getMetadataConfigPromise) return getMetadataConfigPromise;  //  Return the cache.
+    //  Find the instance number based on the function name
+    //  e.g. sendToDatabase123 will be instance 123. Then we will get metadata
+    //  sigfox-dbclient123, ....
+    const instance = instance0 || (
+      sgcloud.functionName ? getInstance(sgcloud.functionName) : ''
+    );
+    sgcloud.log(req, 'getMetadataConfig', { metadataPrefix0, metadataKeys0, instance });
+    let authClient = null;
+    let metadata = null;
+    //  Get a Google auth client.
+    getMetadataConfigPromise = googlemetadata.authorize(req)
+      .then((res) => { authClient = res; })
+      //  Get the project metadata.
+      .then(() => googlemetadata.getProjectMetadata(req, authClient))
+      //  Convert the metadata to a JavaScript object.
+      .then(res => googlemetadata.convertMetadata(req, res))
+      .then((res) => { metadata = res; })
+      .then(() => {
+        //  Hunt for the metadata keys in the metadata object and copy them.
+        const config = Object.assign({}, metadataKeys0);
+        for (const configKey of Object.keys(config)) {
+          const metadataKey = metadataPrefix0 + configKey + instance;
+          if (metadata[metadataKey] !== null && metadata[metadataKey] !== undefined) {
+            //  Copy the non-null values.
+            config[configKey] = metadata[metadataKey];
+          }
+        }
+        const result = config;
+        sgcloud.log(req, 'getMetadataConfig', { result, metadataPrefix0, metadataKeys0, instance });
+        return result;
+      })
+      .catch((error) => {
+        sgcloud.log(req, 'getMetadataConfig', { error, metadataPrefix0, metadataKeys0, instance });
+        throw error;
+      });
+    return getMetadataConfigPromise;
+  }
+
+  function getDatabaseConfig(req, reload, instance) {
+    //  Return the database connection config from the Google Cloud Metadata store.
+    //  Set the global db with the KNEX object and tableInfo with the sensor table info.
+    //  Return the cached connection unless reload is true.  instance is used for unit test.
+    //  Returns a promise.
+    let metadata = null;
+    let dbconfig = null;
+    if (getDatabaseConfigPromise && !reload) {
+      reuseCount += 1; wrapCount += 1;
+      return getDatabaseConfigPromise;
+    }
+    reuseCount = 0; wrapCount = 0;
+    getDatabaseConfigPromise = getMetadataConfig(req,
+      metadataPrefix, metadataKeys, instance)
+      .then((res) => { metadata = res; })
+      .then(() => {
+        dbconfig = {
+          client: metadata.client,
+          connection: {
+            host: metadata.host,
+            user: metadata.user,
+            password: metadata.password,
+            database: metadata.name,
+          },
+        };
+        //  Set the version for Postgres.
+        if (metadata.version) dbconfig.version = metadata.version;
+        //  Create the KNEX instance for accessing the database.
+        db = knex(dbconfig);
+      })
+      //  Read the column info for the sensordata table.
+      .then(() => db(metadata.table).columnInfo())
+      .then((res) => { tableInfo = res; })
+      .then(() => dbconfig)
+      .catch((error) => {
+        sgcloud.log(req, 'getDatabaseConfig', { error });
+        throw error;
+      });
+    return getDatabaseConfigPromise;
+  }
+
+  function throwError(err) {
+    throw err;
+  }
+
+  function createTable(req) {
+    //  Create the sensordata table if it doesn't exist.
+    //  Returns a promise.
+    let table = null;
+    let id = null;
+    let metadata = null;
+    let result = null;
+    return Promise.all([
+      getDatabaseConfig(req).catch(throwError),
+      getMetadataConfig(req).then((res) => { metadata = res; }).catch(throwError),
+    ])
+      .then(() => {
+        table = metadata.table;
+        id = metadata.id;
+        sgcloud.log(req, 'createTable', { table, id });
+        return db.schema.createTableIfNotExists(table, (tbl) => {
+          //  Create each field found in sensorfields.
+          const fields = sensorfields(tbl);
+          for (const fieldName of Object.keys(fields)) {
+            const field = fields[fieldName];
+            const fieldTypeFunc = field[0];
+            const fieldIndex = field[1];
+            const fieldComment = field[2];
+            if (!fieldTypeFunc) {
+              const error = new Error(`Unknown field type for ${fieldName}`);
+              sgcloud.error(req, 'createTable', { error });
+              continue;
+            }
+            //  Invoke the column builder function.
+            const col = fieldTypeFunc.bind(tbl)(fieldName);
+            col.comment(fieldComment);
+            //  If id field, set as primary field.
+            if (fieldName === id) col.primary();
+            if (fieldIndex) col.index();
+          }
+          //  Add the created_at and updated_at fields.
+          tbl.timestamps(true, true);
+        });
+      })
+      .then((res) => {
+        result = res;
+        sgcloud.log(req, 'createTable', { result, table, id });
+      })
+      //  Reload the table info.
+      .then(() => getDatabaseConfig(req, true))
+      .then(() => result)
+      .catch((error) => {
+        sgcloud.error(req, 'createTable', { error, table, id });
+        throw error;
+      });
+  }
+
+  function task(req, device, body0, msg) {
+    //  Handle the Sigfox received by adding it to the sensordata table.
+    //  Database connection settings are read from Google Compute Metadata.
+    //  If the sensordata table is missing, it will be created.
+    console.log({ wrapCount }); //
+    let metadata = null;
+    let table = null;
+    const body = Object.assign({}, body0);
+    //  Create the KNEX database connection or return from cache.
+    return Promise.all([
+      getDatabaseConfig(req).catch(throwError),
+      getMetadataConfig(req).then((res) => { metadata = res; }).catch(throwError),
+    ])
+      .then(() => {
+        //  Create the sensordata table if it doesn't exist.
+        if (tableInfo && Object.keys(tableInfo).length > 0) return 'OK';
+        return createTable(req);
+      })
+      .then(() => {
+        //  Create the record by calling KNEX library.
+        table = metadata.table;
+        //  Remove the fields that don't exist.
+        for (const key of Object.keys(body)) {
+          if (!tableInfo[key]) delete body[key];
+        }
+        //  Convert the timestamp field from number to text.
+        if (body.timestamp) {
+          body.timestamp = new Date(parseInt(body.timestamp, 10));
+        }
+        //  Insert the record.
+        return db(table).insert(body)
+          .catch((error) => {
+            sgcloud.error(req, 'task', { error, device, body, table, reuseCount, wrapCount });
+            return error;  //  Suppress error.
+          });
+      })
+      .then(result => sgcloud.log(req, 'task', { result, device, body, table, reuseCount, wrapCount }))
+      //  Return the message for the next processing step.
+      .then(() => msg)
+      .catch((error) => { sgcloud.log(req, 'task', { error, device, body, msg, table }); throw error; });
+  }
+
+  return {
+    //  Expose these functions outside of the wrapper.
+    //  When this Google Cloud Function is triggered, we call main() which calls task().
+    serveQueue: event => sgcloud.main(event, task),
+
+    //  For unit test only.
+    task,
+    createTable,
+    getMetadataConfig,
+    getDatabaseConfig,
+  };
+}
+
+//  End Message Processing Code
+//  //////////////////////////////////////////////////////////////////////////////////////////
+
+//  //////////////////////////////////////////////////////////////////////////////////////////
+//  Main Function
+
+const wrapper = wrap();
+
+module.exports = {
+  //  Expose these functions to be called by Google Cloud Function.
+  //  eslint-disable-next-line arrow-body-style
+  main: (event) => {
+    let result = null;
+    return wrapper.serveQueue(event)
+      .then((res) => { result = res; })
+      //  If DESTROYPOOL is set in environment, tear down the Knex pool or AWS Lambda will not terminate.
+      .then(() => (db && process.env.DESTROYPOOL) ? db.destroy() : 'skipped')
+      .then(() => result)
+      //  Suppress the error or Google Cloud will call the function again.
+      .catch(error => error);
+  },
+
+  //  For unit test only.
+  task: wrap().task,
+  createTable: wrap().createTable,
+  getMetadataConfig: wrap().getMetadataConfig,
+  getDatabaseConfig: wrap().getDatabaseConfig,
+  metadataPrefix,
+  metadataKeys,
+};

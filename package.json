@@ -1,0 +1,47 @@
+{
+  "name": "sigfox-iot-data",
+  "version": "1.0.0",
+  "description": "sigfox-gcloud and sigfox-aws adapter for logging sensor data to SQL databases",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "echo TODO",
+    "test": "node test"
+  },
+  "keywords": [
+    "sigfox",
+    "mysql",
+    "postgres",
+    "mssql",
+    "oracle",
+    "knex",
+    "google",
+    "cloud",
+    "functions",
+    "aws",
+    "lambda",
+    "iot"
+  ],
+  "author": {
+    "name": "Lee Lup Yuen",
+    "email": "ly.lee@unabiz.com",
+    "url": "http://github.com/unabiz/"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=7.8.0"
+  },
+  "dependencies": {
+    "knex": "^0.13.0",
+    "mysql": "^2.15.0",
+    "pg": "^7.3.0",
+    "sigfox-iot-cloud": "1.0.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UnaBiz/sigfox-iot-data.git"
+  },
+  "bugs": {
+    "url": "https://github.com/UnaBiz/sigfox-iot-data/issues"
+  },
+  "homepage": "https://github.com/UnaBiz/sigfox-iot-data#readme"
+}
