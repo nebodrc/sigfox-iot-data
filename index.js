@@ -117,6 +117,7 @@ function wrap(scloud) {  //  scloud will be either sigfox-gcloud or sigfox-aws, 
       .then(authClient => scloud.getFunctionMetadata(req, authClient))
       .then((metadata) => {
         //  Hunt for the metadata keys in the metadata object and copy them.
+        scloud.log(req, 'getMetadataConfig', { status: 'finding_keys', keys: metadataKeys0.map(k => (metadataPrefix0 + k + instance)) });
         const config = Object.assign({}, metadataKeys0);
         for (const configKey of Object.keys(config)) {
           const metadataKey = metadataPrefix0 + configKey + instance;
