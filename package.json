@@ -1,6 +1,6 @@
 {
   "name": "sigfox-iot-data",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "sigfox-gcloud and sigfox-aws adapter for logging sensor data to SQL databases",
   "main": "index.js",
   "scripts": {
