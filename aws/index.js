@@ -22,7 +22,7 @@
 //  Attribute: *
 //  Topic filter: sigfox/types/sendToDatabase
 //  Condition: (Blank)
-//  Action: Run Lambda Function sendToDatabase
+//  Action: Invoke Lambda Function sendToDatabase
 
 //  Refer to this URL for source code and comments:
 //  https://github.com/UnaBiz/sigfox-iot-data/blob/master/index.js
