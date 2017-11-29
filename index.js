@@ -234,8 +234,8 @@ function wrap(scloud) {  //  scloud will be either sigfox-gcloud or sigfox-aws, 
 
   function task(req, device, body0, msg) {
     //  Handle the Sigfox received by adding it to the sensordata table.
-    //  Database connection settings are read from Google Compute Metadata.
-    //  If the sensordata table is missing, it will be created.
+    //  Database connection settings are read from Google Compute Metadata or
+    //  environment variables.  If the sensordata table is missing, it will be created.
     let metadata = null;
     let table = null;
     let result = null;
