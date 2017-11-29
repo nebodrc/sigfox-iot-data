@@ -34,7 +34,7 @@
     "knex": "^0.13.0",
     "mysql": "^2.15.0",
     "pg": "^7.3.0",
-    "sigfox-iot-cloud": "1.0.8"
+    "sigfox-gcloud": ">=2.0.0"
   },
   "repository": {
     "type": "git",
