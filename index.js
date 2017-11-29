@@ -1,73 +1,23 @@
-//  sendToDatabase Installation Instructions:
-//  Copy and paste the entire contents of lib/lambda.js into a Lambda Function
-//  Name: sendToDatabase
-//  Runtime: Node.js 6.10
-//  Memory: 512 MB
-//  Timeout: 5 min
-//  Existing Role: lambda_iot (defined according to ../policy/LambdaExecuteIoTUpdate.json)
-//  Debugging: Enable active tracing
-//  Environment Variables:
-//  NODE_ENV=production
-//  AUTOINSTALL_DEPENDENCY= sigfox-aws-data
-//  AUTOINSTALL_VERSION= >=0.0.11
-//  sigfox_dbclient=mysql
-//  sigfox_dbhost=mysql host address
-//  sigfox_dbuser=mysql user
-//  sigfox_dbpassword=mysql password
-
-//  Go to AWS IoT, create a Rule:
-//  Name: sigfoxSendToDatabase
-//  SQL Version: Beta
-//  Attribute: *
-//  Topic filter: sigfox/types/sendToDatabase
-//  Condition: (Blank)
-//  Action: Run Lambda Function sendToDatabase
-
-//  Lambda Function sendToDatabase is triggered when a
+//  region Introduction
+//  Cloud Function sendToDatabase is triggered when a
 //  Sigfox message is sent to the message queue sigfox.types.sendToDatabase.
 //  We call the Knex library to record the message in the SQL database.
 
-//  //////////////////////////////////////////////////////////////////////////////////////////
-//  Begin Common Declarations
-
 /* eslint-disable max-len, camelcase, no-console, no-nested-ternary, import/no-dynamic-require, import/newline-after-import, import/no-unresolved, global-require, max-len */
-process.on('uncaughtException', err => console.error('uncaughtException', err.message, err.stack));  //  Display uncaught exceptions.
-process.on('unhandledRejection', (reason, p) => console.error('Unhandled Rejection at:', p, 'reason:', reason));
+//  //////////////////////////////////////////////////////////////////////////////////// endregion
+//  region AutoInstall: List all dependencies here, or just paste the contents of package.json. AutoInstall will install these dependencies before calling wrap().
+const package_json = /* eslint-disable quote-props,quotes,comma-dangle,indent */
+//  PASTE PACKAGE.JSON BELOW  //////////////////////////////////////////////////////////
+{
+  "knex": "^0.13.0",
+  "mysql": "^2.15.0",
+  "pg": "^7.3.0",
+}
+//  PASTE PACKAGE.JSON ABOVE  //////////////////////////////////////////////////////////
+; /* eslint-enable quote-props,quotes,comma-dangle,indent */
 
 //  //////////////////////////////////////////////////////////////////////////////////// endregion
-//  region AWS-Specific Functions
-
-const awsmetadata = {
-  //  In lieu of the metadata store, we read from the environment variables.
-  authorize(/* req */) {
-    return Promise.resolve({ result: 'OK' });
-  },
-  getProjectMetadata(/* req, authClient */) {
-    //  On Google Cloud the keys can contain '-'.  But AWS environment doesn't allow.
-    //  So we copy all keys with '_' and change to '-' instead.
-    const metadata = Object.assign({}, process.env);
-    const keys = Object.keys(metadata);
-    for (const key of keys) {
-      if (key.indexOf('_') < 0) continue;
-      const val = metadata[key];
-      metadata[key.split('_').join('-')] = val;
-    }
-    return Promise.resolve(metadata);
-  },
-  convertMetadata(req, metadata) {
-    return Promise.resolve(metadata);
-  },
-};
-
-//  //////////////////////////////////////////////////////////////////////////////////// endregion
-//  region Portable Declarations for Google Cloud and AWS
-
-//  We use KNEX library to support many types of databases.
-//  Remember to install any needed database clients e.g. "mysql", "pg"
-const knex = require('knex');
-
-//  //////////////////////////////////////////////////////////////////////////////////// endregion
-//  region Portable Code for Google Cloud and AWS
+//  region Declarations: Don't use any require() or process.env in this section because AutoInstall has not loaded our dependencies yet.
 
 //  Our database settings are stored in the Google Cloud Metadata store under this prefix.
 //  If there are multiple instances of this function e.g. sendToDatabase2, sendToDatabase3, ...
@@ -115,18 +65,25 @@ const sensorfields = (tbl) => ({
   tmp: [tbl.float, false, 'Temperature in degrees Celsius, used by send-alt-structured demo, e.g. 25.6'],
 });
 
-let db = null;  //  Instance of the KNEX library.
+let db = null;  //  Instance of the Knex library.
 let tableInfo = null;  //  Contains the actual columns in the sensordata table.
 let getMetadataConfigPromise = null;  //  Promise for returning the metadata config.
 let getDatabaseConfigPromise = null;  //  Promise for returning the database connection.
 let reuseCount = 0;
 
-function wrap() {
-  //  Wrap the module into a function so that all Google Cloud resources are properly disposed.
-  const sgcloud = require('sigfox-aws'); //  sigfox-aws Framework
-  // const googlemetadata = require('sigfox-gcloud/lib/google-metadata');  //  For accessing Google Metadata.
-  const googlemetadata = awsmetadata;
-  let wrapCount = 0;
+//  //////////////////////////////////////////////////////////////////////////////////// endregion
+//  region Message Processing Code
+
+function wrap(scloud) {  //  scloud will be either sigfox-gcloud or sigfox-aws, depending on platform.
+  //  Wrap the module into a function so that all we defer loading of dependencies,
+  //  and ensure that cloud resources are properly disposed. For AWS, wrap() is called after
+  //  all dependencies have been loaded.
+  let wrapCount = 0; //  Count how many times the wrapper was reused.
+
+  //  List all require() here because AutoInstall has loaded our dependencies. Don't include sigfox-gcloud or sigfox-aws, they are added by AutoInstall.
+  //  We use Knex library to support many types of databases.
+  //  Remember to install any needed database clients e.g. "mysql", "pg"
+  const knex = require('knex');
 
   function getInstance(name) {
     //  Given a function name like "func123", return the suffix number "123".
@@ -141,9 +98,10 @@ function wrap() {
   }
 
   function getMetadataConfig(req, metadataPrefix0, metadataKeys0, instance0) {
-    //  Fetch the metadata config from the Google Cloud Metadata store.  metadataPrefix is the common
-    //  prefix for all config keys, e.g. "sigfox-db".  metadataKeys is a map of the key suffix
-    //  and the default values.  Returns a promise for the map of metadataKeys to values.
+    //  Fetch the metadata config from the Google Cloud Metadata store or AWS Lambda
+    //  Environment Variables.  metadataPrefix is the common prefix for all config keys,
+    //  e.g. "sigfox-db".  metadataKeys is a map of the key suffix and the default values.
+    //  Returns a promise for the map of metadataKeys to values.
     //  We use the Google Cloud Metadata store because it has an editing screen and is easier
     //  to deploy, compared to a config file. instance0 is used for unit test.
     if (getMetadataConfigPromise) return getMetadataConfigPromise;  //  Return the cache.
@@ -151,18 +109,18 @@ function wrap() {
     //  e.g. sendToDatabase123 will be instance 123. Then we will get metadata
     //  sigfox-dbclient123, ....
     const instance = instance0 || (
-      sgcloud.functionName ? getInstance(sgcloud.functionName) : ''
+      scloud.functionName ? getInstance(scloud.functionName) : ''
     );
-    sgcloud.log(req, 'getMetadataConfig', { metadataPrefix0, metadataKeys0, instance });
+    scloud.log(req, 'getMetadataConfig', { metadataPrefix0, metadataKeys0, instance });
     let authClient = null;
     let metadata = null;
-    //  Get a Google auth client.
-    getMetadataConfigPromise = googlemetadata.authorize(req)
+    //  Get authorization to access the metadata.
+    getMetadataConfigPromise = scloud.authorizeMetadata(req)
       .then((res) => { authClient = res; })
-      //  Get the project metadata.
-      .then(() => googlemetadata.getProjectMetadata(req, authClient))
+      //  Get the metadata.
+      .then(() => scloud.getMetadata(req, authClient))
       //  Convert the metadata to a JavaScript object.
-      .then(res => googlemetadata.convertMetadata(req, res))
+      .then(res => scloud.convertMetadata(req, res))
       .then((res) => { metadata = res; })
       .then(() => {
         //  Hunt for the metadata keys in the metadata object and copy them.
@@ -175,11 +133,11 @@ function wrap() {
           }
         }
         const result = config;
-        sgcloud.log(req, 'getMetadataConfig', { result, metadataPrefix0, metadataKeys0, instance });
+        scloud.log(req, 'getMetadataConfig', { result, metadataPrefix0, metadataKeys0, instance });
         return result;
       })
       .catch((error) => {
-        sgcloud.log(req, 'getMetadataConfig', { error, metadataPrefix0, metadataKeys0, instance });
+        scloud.log(req, 'getMetadataConfig', { error, metadataPrefix0, metadataKeys0, instance });
         throw error;
       });
     return getMetadataConfigPromise;
@@ -187,7 +145,7 @@ function wrap() {
 
   function getDatabaseConfig(req, reload, instance) {
     //  Return the database connection config from the Google Cloud Metadata store.
-    //  Set the global db with the KNEX object and tableInfo with the sensor table info.
+    //  Set the global db with the Knex object and tableInfo with the sensor table info.
     //  Return the cached connection unless reload is true.  instance is used for unit test.
     //  Returns a promise.
     let metadata = null;
@@ -212,7 +170,7 @@ function wrap() {
         };
         //  Set the version for Postgres.
         if (metadata.version) dbconfig.version = metadata.version;
-        //  Create the KNEX instance for accessing the database.
+        //  Create the Knex instance for accessing the database.
         db = knex(dbconfig);
       })
       //  Read the column info for the sensordata table.
@@ -220,7 +178,7 @@ function wrap() {
       .then((res) => { tableInfo = res; })
       .then(() => dbconfig)
       .catch((error) => {
-        sgcloud.log(req, 'getDatabaseConfig', { error });
+        scloud.log(req, 'getDatabaseConfig', { error });
         throw error;
       });
     return getDatabaseConfigPromise;
@@ -231,8 +189,7 @@ function wrap() {
   }
 
   function createTable(req) {
-    //  Create the sensordata table if it doesn't exist.
-    //  Returns a promise.
+    //  Create the sensordata table if it doesn't exist.  Returns a promise.
     let table = null;
     let id = null;
     let metadata = null;
@@ -244,7 +201,7 @@ function wrap() {
       .then(() => {
         table = metadata.table;
         id = metadata.id;
-        sgcloud.log(req, 'createTable', { table, id });
+        scloud.log(req, 'createTable', { table, id });
         return db.schema.createTableIfNotExists(table, (tbl) => {
           //  Create each field found in sensorfields.
           const fields = sensorfields(tbl);
@@ -255,7 +212,7 @@ function wrap() {
             const fieldComment = field[2];
             if (!fieldTypeFunc) {
               const error = new Error(`Unknown field type for ${fieldName}`);
-              sgcloud.error(req, 'createTable', { error });
+              scloud.error(req, 'createTable', { error });
               continue;
             }
             //  Invoke the column builder function.
@@ -271,13 +228,13 @@ function wrap() {
       })
       .then((res) => {
         result = res;
-        sgcloud.log(req, 'createTable', { result, table, id });
+        scloud.log(req, 'createTable', { result, table, id });
       })
       //  Reload the table info.
       .then(() => getDatabaseConfig(req, true))
       .then(() => result)
       .catch((error) => {
-        sgcloud.error(req, 'createTable', { error, table, id });
+        scloud.error(req, 'createTable', { error, table, id });
         throw error;
       });
   }
@@ -286,11 +243,11 @@ function wrap() {
     //  Handle the Sigfox received by adding it to the sensordata table.
     //  Database connection settings are read from Google Compute Metadata.
     //  If the sensordata table is missing, it will be created.
-    console.log({ wrapCount }); //
     let metadata = null;
     let table = null;
+    let result = null;
     const body = Object.assign({}, body0);
-    //  Create the KNEX database connection or return from cache.
+    //  Create the Knex database connection or return from cache.
     return Promise.all([
       getDatabaseConfig(req).catch(throwError),
       getMetadataConfig(req).then((res) => { metadata = res; }).catch(throwError),
@@ -301,7 +258,7 @@ function wrap() {
         return createTable(req);
       })
       .then(() => {
-        //  Create the record by calling KNEX library.
+        //  Create the record by calling Knex library.
         table = metadata.table;
         //  Remove the fields that don't exist.
         for (const key of Object.keys(body)) {
@@ -314,56 +271,43 @@ function wrap() {
         //  Insert the record.
         return db(table).insert(body)
           .catch((error) => {
-            sgcloud.error(req, 'task', { error, device, body, table, reuseCount, wrapCount });
+            scloud.error(req, 'task', { error, device, body, table, reuseCount, wrapCount });
             return error;  //  Suppress error.
           });
       })
-      .then(result => sgcloud.log(req, 'task', { result, device, body, table, reuseCount, wrapCount }))
+      .then((res) => { result = res; })
+      .then(() => {
+        //  If DESTROYPOOL is set in environment, tear down the Knex pool or AWS Lambda will not terminate.
+        if (db && process.env.DESTROYPOOL) {
+          db.destroy();
+          db = null;
+        }
+      })
+      .then(() => scloud.log(req, 'task', { result, device, body, table, reuseCount, wrapCount }))
       //  Return the message for the next processing step.
       .then(() => msg)
-      .catch((error) => { sgcloud.log(req, 'task', { error, device, body, msg, table }); throw error; });
+      .catch((error) => { scloud.log(req, 'task', { error, device, body, msg, table }); throw error; });
   }
 
-  return {
-    //  Expose these functions outside of the wrapper.
-    //  When this Google Cloud Function is triggered, we call main() which calls task().
-    serveQueue: event => sgcloud.main(event, task),
-
-    //  For unit test only.
-    task,
-    createTable,
-    getMetadataConfig,
-    getDatabaseConfig,
-  };
+  //  Expose these functions outside of the wrapper.  task() is called to execute
+  //  the wrapped function when the dependencies and the wrapper have been loaded.
+  return { task };
 }
 
-//  End Message Processing Code
-//  //////////////////////////////////////////////////////////////////////////////////////////
-
-//  //////////////////////////////////////////////////////////////////////////////////////////
-//  Main Function
-
-const wrapper = wrap();
-
-module.exports = {
-  //  Expose these functions to be called by Google Cloud Function.
-  //  eslint-disable-next-line arrow-body-style
-  main: (event) => {
-    let result = null;
-    return wrapper.serveQueue(event)
-      .then((res) => { result = res; })
-      //  If DESTROYPOOL is set in environment, tear down the Knex pool or AWS Lambda will not terminate.
-      .then(() => (db && process.env.DESTROYPOOL) ? db.destroy() : 'skipped')
-      .then(() => result)
-      //  Suppress the error or Google Cloud will call the function again.
-      .catch(error => error);
-  },
-
-  //  For unit test only.
-  task: wrap().task,
-  createTable: wrap().createTable,
-  getMetadataConfig: wrap().getMetadataConfig,
-  getDatabaseConfig: wrap().getDatabaseConfig,
-  metadataPrefix,
-  metadataKeys,
-};
+//  //////////////////////////////////////////////////////////////////////////////////// endregion
+//  region Standard Code for AutoInstall Startup Function 1.0.  Do not modify.  https://github.com/UnaBiz/sigfox-iot-cloud/blob/master/autoinstall.js
+/*  eslint-disable camelcase,no-unused-vars,import/no-absolute-path,import/no-unresolved,no-use-before-define,global-require,max-len,no-tabs,brace-style,import/no-extraneous-dependencies */
+const wrapper = {};  //  The single reused wrapper instance (initially empty) for invoking the module functions.
+exports.main = process.env.FUNCTION_NAME ? require('sigfox-gcloud/main').getMainFunction(wrapper, wrap, package_json)  //  Google Cloud.
+  : (event, context, callback) => {
+    const afterExec = error => error ? callback(error, 'AutoInstall Failed')
+      : require('/tmp/autoinstall').installAndRunWrapper(event, context, callback, package_json, __filename, wrapper, wrap);
+    if (require('fs').existsSync('/tmp/autoinstall.js')) return afterExec(null);  //  Already downloaded.
+    const cmd = 'curl -s -S -o /tmp/autoinstall.js https://raw.githubusercontent.com/UnaBiz/sigfox-iot-cloud/master/autoinstall.js';
+    const child = require('child_process').exec(cmd, { maxBuffer: 1024 * 500 }, afterExec);
+    child.stdout.on('data', console.log); child.stderr.on('data', console.error); return null; };
+//  exports.main is the startup function for AWS Lambda and Google Cloud Function.
+//  When AWS starts our Lambda function, we load the autoinstall script from GitHub to install any NPM dependencies.
+//  For first run, install the dependencies specified in package_json and proceed to next step.
+//  For future runs, just execute the wrapper function with the event, context, callback parameters.
+//  //////////////////////////////////////////////////////////////////////////////////// endregion
