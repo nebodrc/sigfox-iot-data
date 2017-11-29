@@ -1,5 +1,5 @@
 //  sendToDatabase Installation Instructions:
-//  Copy and paste the entire contents of file into a Lambda Function
+//  Copy and paste the entire contents of this file into a Lambda Function
 //  Name: sendToDatabase
 //  Runtime: Node.js 6.10
 //  Handler: index.main
