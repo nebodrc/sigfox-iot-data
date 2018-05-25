@@ -62,7 +62,6 @@ const sensorfields = (tbl) => ({
   seqNumber: [tbl.integer, true, 'Sigfox message sequence number, e.g. 2426'],
   snr: [tbl.float, false, 'Sigfox message signal-to-noise ratio, e.g. 21.61'],
   station: [tbl.string, true, 'Sigfox basestation ID, e.g. 2464'],
-  station2: [tbl.string, true, 'Sigfox basestation ID, e.g. 2464'],
   tmp: [tbl.float, false, 'Temperature in degrees Celsius, used by send-alt-structured demo, e.g. 25.6'],
 });
 
