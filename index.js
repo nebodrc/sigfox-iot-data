@@ -42,10 +42,6 @@ const sensorfields = (tbl) => ({
 
   alt: [tbl.float, false, 'Altitude in metres above sea level, used by send-alt-structured demo, e.g. 86.4'],
   vlt: [tbl.float, false, 'Volt, used by send-alt-structured demo, e.g. 86.4'],
-  ep: [tbl.float, false, 'CTR, used by send-alt-structured demo, e.g. 86.4'],
-  a: [tbl.float, false, 'CTR, used by send-alt-structured demo, e.g. 86.4'],
-  gp: [tbl.float, false, 'CTR, used by send-alt-structured demo, e.g. 86.4'],
-  e: [tbl.float, false, 'CTR, used by send-alt-structured demo, e.g. 86.4'],
   ctr: [tbl.float, false, 'CTR, used by send-alt-structured demo, e.g. 86.4'],
   avgSnr: [tbl.float, false, 'Sigfox average signal-to-noise ratio, e.g. 59.84'],
   baseStationLat: [tbl.float, false, 'Sigfox basestation latitude.  Usually truncated to 0 decimal points, e.g. 1'],
